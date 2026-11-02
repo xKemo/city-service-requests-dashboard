@@ -40,4 +40,4 @@ Keep `app.py`, `dashboard_data.csv`, `florida_counties.geojson`, and `requiremen
 
 ## AI-use statement
 
-Generative AI assisted with dashboard implementation, map configuration, and documentation. The student is responsible for reviewing the code, checking results and filters, interpreting the findings, and presenting the analysis accurately.
+Generative AI assisted with dashboard implementation, map configuration, and documentation.
