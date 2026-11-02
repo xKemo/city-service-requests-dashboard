@@ -17,7 +17,7 @@ The dashboard is intended for city operations teams and residents who want to ex
 2. How does request volume change over time, and do categories show different monthly patterns?
 3. Do slower resolutions tend to have lower resident satisfaction, and does that relationship differ by channel?
 
-The dashboard provides four filter-responsive summary metrics: unique requests, median resolution time, the share of requests past their SLA, and average satisfaction. Date, category, district, channel, and priority filters update the metrics and all three visualizations.
+The dashboard provides four filter-responsive summary metrics: unique requests, median resolution time, the share of requests past their SLA, and average satisfaction. Date, category, district, channel, and priority filters update the metrics, three analysis charts, and a district activity schematic. The schematic is illustrative only because the source data does not contain district coordinates.
 
 ## Dataset and source
 

@@ -188,6 +188,68 @@ peak_total = demand_data.groupby("month_start")["requests"].sum().max()
 st.caption(f"Peak month in the current selection: {peak_month:%B %Y} ({peak_total:,.0f} requests).")
 
 st.divider()
+st.subheader("District service map")
+st.write("A compact view of request volume across the selected districts.")
+district_positions = {
+    "North End": (1, 2),
+    "Downtown": (1, 1),
+    "East Side": (2, 1),
+    "West End": (0, 1),
+    "University": (2, 2),
+    "South Park": (1, 0),
+}
+district_map_data = (
+    filtered.loc[filtered["district"].isin(district_positions)]
+    .groupby("district", as_index=False, observed=True)
+    .agg(requests=("request_id", "nunique"))
+)
+district_map_data["x"] = district_map_data["district"].map(
+    lambda district: district_positions[district][0]
+)
+district_map_data["y"] = district_map_data["district"].map(
+    lambda district: district_positions[district][1]
+)
+map_column, map_note_column = st.columns([2, 1])
+with map_column:
+    if district_map_data.empty:
+        st.info("No named districts match the current filters.")
+    else:
+        district_chart = px.scatter(
+            district_map_data,
+            x="x",
+            y="y",
+            size="requests",
+            color="requests",
+            text="district",
+            size_max=58,
+            color_continuous_scale=["#B8D7CF", "#126B5B"],
+            hover_data={"x": False, "y": False, "district": True, "requests": ":,d"},
+            labels={"requests": "Unique requests"},
+        )
+        district_chart.update_traces(
+            textposition="middle center",
+            textfont=dict(color="#10231F", size=11),
+            marker=dict(line=dict(color="#FFFFFF", width=2)),
+        )
+        district_chart.update_layout(
+            template="plotly_white",
+            showlegend=False,
+            coloraxis_showscale=False,
+            margin=dict(l=10, r=10, t=10, b=10),
+            height=330,
+            xaxis=dict(visible=False, range=[-0.65, 2.65], fixedrange=True),
+            yaxis=dict(visible=False, range=[-0.55, 2.55], fixedrange=True),
+        )
+        st.plotly_chart(district_chart, width="stretch")
+with map_note_column:
+    st.markdown("**Marker size**\n\nUnique requests")
+    st.markdown(
+        "**Schematic only**\n\n"
+        "The dataset contains district names, not geographic coordinates. "
+        "Marker positions are illustrative and do not represent actual locations. "
+        "Unknown districts are omitted."
+    )
+
 st.subheader("Resolution time and resident experience")
 st.write(
     "Do requests that take longer to resolve tend to receive lower satisfaction scores, "
