@@ -1,27 +1,29 @@
-# City Service Requests Dashboard
+# Florida Crime Patterns Dashboard
 
-An interactive Streamlit dashboard exploring resolution speed, request demand, and resident satisfaction in a synthetic City 311 service-request dataset.
+An interactive Streamlit dashboard exploring FBI NIBRS-reported crime incidents in Florida during 2025, including county-level concentration, monthly counts, and offense types.
 
 ## Published links
 
-- Streamlit app: **Add the deployed Streamlit Community Cloud URL here**
-- Public GitHub repository: **Add the public repository URL here**
+- Streamlit app: https://xkemo-city-service-requests-dashboard-app-c3thhi.streamlit.app/
+- Public GitHub repository: https://github.com/xKemo/city-service-requests-dashboard
 
 ## Project and audience
 
-The dashboard is intended for city operations teams and residents who want to explore how service requests are handled. It summarizes patterns in the supplied teaching dataset and is not an official report about any real city.
+The dashboard is intended for Florida residents, students, and public-safety analysts who want to explore reported incident patterns. Date, county, primary offense, and location-type filters update the metrics and all visualizations.
 
 ## Analysis questions
 
-1. Which request categories take the longest to resolve, and how does resolution time vary by priority?
-2. How does request volume change over time, and do categories show different monthly patterns?
-3. Do slower resolutions tend to have lower resident satisfaction, and does that relationship differ by channel?
+1. Which Florida counties have the highest counts of reported incidents in this extract?
+2. How do reported incident counts change month to month?
+3. Which primary offense types appear most often?
 
-The dashboard provides four filter-responsive summary metrics: unique requests, median resolution time, the share of requests past their SLA, and average satisfaction. Date, category, district, channel, and priority filters update the metrics, three analysis charts, and a district activity schematic. The schematic is illustrative only because the source data does not contain district coordinates.
+The dashboard includes four summary metrics and three visualizations: a county choropleth heat map, a monthly incident trend, and a ranking of primary offense types. Heat colors progress from purple and blue through green and yellow to red as reported counts rise. The map uses a logarithmic color scale to keep lower-count counties visible.
 
-## Dataset and source
+## Dataset and limitations
 
-`dashboard_data.csv` is the reduced dashboard dataset supplied with the Deliverable 2 teaching example. Its source is an instructor-provided synthetic City 311 dataset, not a live municipal data feed. The synthetic rows were created for coursework and should not be interpreted as actual service performance. Only the reduced CSV needed by the app is included in the deployment package; the larger raw data file is not required to run the dashboard.
+`dashboard_data.csv` is a reduced dataset prepared from the FBI Crime Data Explorer Florida 2025 NIBRS extract (`FL-2025.zip`). The map boundary file, `florida_counties.geojson`, contains Florida county outlines derived from the Plotly county GeoJSON dataset, which is based on U.S. Census county identifiers.
+
+Each incident is assigned its first listed offense and location so it contributes once to incident counts. County reflects the reporting agency’s county, not a verified incident address. Records without an unambiguous Florida county are excluded; only 54 counties have mapped reports in this extract. Counties without mapped records appear gray and must not be interpreted as having zero crime. Counts are not adjusted for population, reporting coverage varies, and the FBI data represents reported incidents rather than all crimes that occurred.
 
 ## Run locally
 
@@ -34,8 +36,8 @@ python -m pip install -r requirements.txt
 streamlit run app.py
 ```
 
-Keep `app.py`, `dashboard_data.csv`, and `requirements.txt` in the same repository root. Streamlit Community Cloud can deploy the app by selecting this repository and setting the main file to `app.py`.
+Keep `app.py`, `dashboard_data.csv`, `florida_counties.geojson`, and `requirements.txt` together in the repository root.
 
 ## AI-use statement
 
-Generative AI assisted with dashboard implementation, chart setup, and documentation. The student is responsible for reviewing the code, validating the filters and results, and presenting the analysis accurately.
+Generative AI assisted with dashboard implementation, map configuration, and documentation. The student is responsible for reviewing the code, checking results and filters, interpreting the findings, and presenting the analysis accurately.

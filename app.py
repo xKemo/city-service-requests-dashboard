@@ -1,3 +1,5 @@
+import json
+import math
 from pathlib import Path
 
 import pandas as pd
@@ -6,291 +8,237 @@ import streamlit as st
 
 
 st.set_page_config(
-    page_title="City Service Requests",
-    page_icon=":material/bar_chart:",
+    page_title="Florida Crime Patterns | 2025",
+    page_icon=":material/map:",
     layout="wide",
 )
 
 DATA_FILE = Path(__file__).with_name("dashboard_data.csv")
-CHART_COLORS = ["#126B5B", "#E29A35", "#D85D4A", "#5276A7", "#8B6F9D", "#7A8F46"]
+GEOJSON_FILE = Path(__file__).with_name("florida_counties.geojson")
+HEAT_COLORS = ["#713A8E", "#2864C5", "#24A66A", "#F2D13D", "#D84343"]
 
 
 @st.cache_data
-def load_data() -> pd.DataFrame:
-    data = pd.read_csv(DATA_FILE)
-    data["created_date"] = pd.to_datetime(data["created_date"], errors="coerce")
-    for column in ("resolution_days", "satisfaction_score", "is_late"):
-        data[column] = pd.to_numeric(data[column], errors="coerce")
-    data = data.dropna(subset=["created_date"]).copy()
-    data["month_start"] = data["created_date"].dt.to_period("M").dt.to_timestamp()
-    return data
+def load_dashboard_data() -> tuple[pd.DataFrame, dict]:
+    data = pd.read_csv(DATA_FILE, dtype={"county_fips": str})
+    data["month"] = pd.to_datetime(data["month"], format="%Y-%m", errors="coerce")
+    data["incidents"] = pd.to_numeric(data["incidents"], errors="coerce").fillna(0)
+    with GEOJSON_FILE.open(encoding="utf-8") as geojson_file:
+        county_geojson = json.load(geojson_file)
+    return data.dropna(subset=["month"]), county_geojson
 
-
-def format_count(value: int) -> str:
-    return f"{value:,.0f}"
-
-
-st.title("City Service Requests")
-st.write(
-    "Explore how quickly requests are resolved, when demand changes, and how "
-    "resolution time relates to resident satisfaction."
-)
-st.caption(
-    "Intended audience: city operations teams and residents interested in "
-    "service delivery. This dashboard uses synthetic teaching data."
-)
 
 try:
-    requests = load_data()
-except FileNotFoundError:
-    st.error("dashboard_data.csv was not found beside app.py.")
+    crime_data, florida_geojson = load_dashboard_data()
+except FileNotFoundError as error:
+    st.error(f"Required dashboard file is missing: {error.filename}")
     st.stop()
 
-if requests.empty:
-    st.error("The dataset has no rows with a valid created date.")
+if crime_data.empty:
+    st.error("The Florida crime dataset contains no usable records.")
     st.stop()
+
+st.title("Florida Crime Patterns | 2025")
+st.write(
+    "Explore where reported incidents were concentrated, how counts changed by month, "
+    "and which offense types appeared most often."
+)
+st.caption(
+    "Intended audience: Florida residents, students, and public-safety analysts. "
+    "Counts describe FBI NIBRS reports, not every crime that occurred."
+)
 
 with st.sidebar:
-    st.header("Filters")
-    date_min = requests["created_date"].min().date()
-    date_max = requests["created_date"].max().date()
-    date_selection = st.date_input(
-        "Created date",
-        value=(date_min, date_max),
-        min_value=date_min,
-        max_value=date_max,
+    st.header("Explore the data")
+    available_months = sorted(crime_data["month"].unique())
+    month_range = st.select_slider(
+        "Month range",
+        options=available_months,
+        value=(available_months[0], available_months[-1]),
+        format_func=lambda month: month.strftime("%b %Y"),
+    )
+    county_options = sorted(crime_data["county"].unique())
+    selected_counties = st.multiselect(
+        "County",
+        county_options,
+        default=county_options,
+    )
+    offense_options = sorted(crime_data["offense_name"].unique())
+    selected_offenses = st.multiselect(
+        "Primary offense",
+        offense_options,
+        default=offense_options,
+    )
+    location_options = sorted(crime_data["location_name"].unique())
+    selected_locations = st.multiselect(
+        "Location type",
+        location_options,
+        default=location_options,
     )
 
-    def multiselect_filter(label: str, column: str) -> list[str]:
-        options = sorted(requests[column].dropna().astype(str).unique().tolist())
-        return st.multiselect(label, options, default=options)
-
-    selected_categories = multiselect_filter("Category", "category")
-    selected_districts = multiselect_filter("District", "district")
-    selected_channels = multiselect_filter("Channel", "channel")
-    selected_priorities = multiselect_filter("Priority", "priority")
-
-if isinstance(date_selection, tuple) and len(date_selection) == 2:
-    start_date, end_date = date_selection
-else:
-    start_date = end_date = date_selection
-
-filtered = requests.loc[
-    requests["created_date"].dt.date.between(start_date, end_date)
-    & requests["category"].astype(str).isin(selected_categories)
-    & requests["district"].astype(str).isin(selected_districts)
-    & requests["channel"].astype(str).isin(selected_channels)
-    & requests["priority"].astype(str).isin(selected_priorities)
+filtered = crime_data.loc[
+    crime_data["month"].between(month_range[0], month_range[1])
+    & crime_data["county"].isin(selected_counties)
+    & crime_data["offense_name"].isin(selected_offenses)
+    & crime_data["location_name"].isin(selected_locations)
 ].copy()
 
-st.subheader("At a glance")
 if filtered.empty:
-    st.info("No requests match the selected filters. Adjust the filters to see results.")
+    st.info("No reported incidents match these filters. Expand your selections to see results.")
     st.stop()
 
-closed_requests = filtered.loc[filtered["resolution_days"].notna()]
-late_values = filtered["is_late"].dropna()
-satisfaction_values = filtered["satisfaction_score"].dropna()
+county_counts = filtered.groupby("county_fips", as_index=False)["incidents"].sum()
+county_names = (
+    crime_data[["county_fips", "county"]]
+    .drop_duplicates("county_fips")
+    .set_index("county_fips")["county"]
+)
+county_counts["county"] = county_counts["county_fips"].map(county_names)
+top_county = county_counts.loc[county_counts["incidents"].idxmax()]
+offense_counts = filtered.groupby("offense_name")["incidents"].sum().sort_values(ascending=False)
+top_offense = offense_counts.index[0]
+total_incidents = int(filtered["incidents"].sum())
 
+st.subheader("At a glance")
 metric_columns = st.columns(4)
-metric_columns[0].metric("Requests", format_count(filtered["request_id"].nunique()))
-metric_columns[1].metric(
-    "Median resolution",
-    f"{closed_requests['resolution_days'].median():.1f} days"
-    if not closed_requests.empty
-    else "N/A",
-)
-metric_columns[2].metric(
-    "Past SLA",
-    f"{late_values.mean() * 100:.1f}%" if not late_values.empty else "N/A",
-    help="Share of requests with a recorded SLA result that were late.",
-)
-metric_columns[3].metric(
-    "Average satisfaction",
-    f"{satisfaction_values.mean():.2f} / 5" if not satisfaction_values.empty else "N/A",
-)
+metric_columns[0].metric("Reported incidents", f"{total_incidents:,}")
+metric_columns[1].metric("Counties represented", f"{len(county_counts):,}")
+metric_columns[2].metric("Highest-count county", str(top_county["county"]))
+metric_columns[3].metric("Most common primary offense", top_offense)
 
 st.divider()
-st.subheader("Resolution speed")
+st.subheader("Where reported incidents were concentrated")
 st.write(
-    "Which categories take longest to resolve, and how does the pattern vary by priority?"
+    "County color shows the count of mapped incidents in the current selection. "
+    "The color scale uses a log transform so both high- and lower-count counties remain visible."
 )
-speed_data = closed_requests.groupby(
-    ["category", "priority"], as_index=False, observed=True
-)["resolution_days"].median()
-category_order = (
-    closed_requests.groupby("category")["resolution_days"]
-    .median()
-    .sort_values()
-    .index.tolist()
+
+geo_counties = pd.DataFrame(
+    [
+        {
+            "county_fips": feature["properties"]["GEO_ID"][-5:],
+            "county": feature["properties"]["NAME"],
+        }
+        for feature in florida_geojson["features"]
+    ]
 )
-speed_chart = px.bar(
-    speed_data,
-    x="resolution_days",
-    y="category",
-    color="priority",
-    barmode="group",
-    category_orders={"category": category_order},
-    color_discrete_sequence=CHART_COLORS,
-    labels={
-        "resolution_days": "Median resolution time (days)",
-        "category": "Request category",
-        "priority": "Priority",
+reporting_fips = set(crime_data["county_fips"].unique())
+county_map = geo_counties.merge(
+    county_counts[["county_fips", "incidents"]],
+    on="county_fips",
+    how="left",
+)
+county_map["geo_id"] = "0500000US" + county_map["county_fips"]
+county_map["is_selected"] = county_map["county_fips"].isin(filtered["county_fips"].unique())
+county_map["has_source_reports"] = county_map["county_fips"].isin(reporting_fips)
+county_map["color_value"] = county_map["incidents"].map(
+    lambda count: math.log10(count + 1) if pd.notna(count) else None
+)
+county_map.loc[~county_map["is_selected"] | ~county_map["has_source_reports"], "color_value"] = None
+county_map["incidents"] = county_map["incidents"].fillna(0).astype(int)
+max_log_count = max(
+    1.0,
+    math.log10(max(1, int(county_map["incidents"].max())) + 1),
+)
+tick_values = [value for value in range(math.ceil(max_log_count) + 1) if value <= max_log_count]
+tick_labels = ["0" if value == 0 else f"{10**value:,}" for value in tick_values]
+
+heat_map = px.choropleth(
+    county_map,
+    geojson=florida_geojson,
+    locations="geo_id",
+    featureidkey="properties.GEO_ID",
+    color="color_value",
+    hover_name="county",
+    hover_data={
+        "county_fips": False,
+        "geo_id": False,
+        "color_value": False,
+        "incidents": ":,d",
+        "is_selected": False,
+        "has_source_reports": False,
     },
+    color_continuous_scale=HEAT_COLORS,
+    range_color=(0, max_log_count),
+    labels={"color_value": "Reported incidents (log scale)", "incidents": "Incidents"},
 )
-speed_chart.update_layout(
+heat_map.update_traces(marker_line_color="#FFFFFF", marker_line_width=0.8)
+heat_map.update_coloraxes(
+    colorbar=dict(title="Reported incidents", tickvals=tick_values, ticktext=tick_labels)
+)
+heat_map.update_geos(
+    fitbounds="locations",
+    visible=False,
+    showland=True,
+    landcolor="#E9ECE8",
+    bgcolor="#FFFFFF",
+)
+heat_map.update_layout(
     template="plotly_white",
-    legend_title_text="Priority",
-    margin=dict(l=10, r=10, t=15, b=10),
-    height=420,
+    margin=dict(l=0, r=0, t=10, b=0),
+    height=610,
 )
-st.plotly_chart(speed_chart, width="stretch")
-if not speed_data.empty:
-    slowest = speed_data.groupby("category")["resolution_days"].median().idxmax()
-    slowest_days = speed_data.groupby("category")["resolution_days"].median().max()
-    st.caption(
-        f"Among the filtered closed requests, {slowest} has the highest category-level "
-        f"median resolution time ({slowest_days:.1f} days)."
-    )
-else:
-    st.caption("No closed requests with resolution times match these filters.")
+st.plotly_chart(heat_map, width="stretch")
+st.caption(
+    f"Highest count in the current selection: {top_county['county']} "
+    f"({int(top_county['incidents']):,} incidents). Gray counties have no incidents "
+    "matching the current filters or no mapped county reports in this extract; they "
+    "should not be read as zero crime."
+)
 
 st.divider()
-st.subheader("Request demand over time")
-st.write("How has monthly request volume changed, and do categories follow different patterns?")
-demand_data = (
-    filtered.groupby(["month_start", "category"], as_index=False, observed=True)["request_id"]
-    .nunique()
-    .rename(columns={"request_id": "requests"})
+st.subheader("Reported incidents by month")
+monthly = (
+    filtered.groupby("month", as_index=False)["incidents"]
+    .sum()
+    .sort_values("month")
 )
-demand_chart = px.line(
-    demand_data,
-    x="month_start",
-    y="requests",
-    color="category",
+month_chart = px.line(
+    monthly,
+    x="month",
+    y="incidents",
     markers=True,
-    color_discrete_sequence=CHART_COLORS,
-    labels={
-        "month_start": "Month",
-        "requests": "Unique requests",
-        "category": "Category",
-    },
+    labels={"month": "Month", "incidents": "Reported incidents"},
+    color_discrete_sequence=["#2864C5"],
 )
-demand_chart.update_layout(
+month_chart.update_layout(
     template="plotly_white",
-    legend_title_text="Category",
     margin=dict(l=10, r=10, t=15, b=10),
-    height=410,
+    height=360,
 )
-st.plotly_chart(demand_chart, width="stretch")
-peak_month = demand_data.groupby("month_start")["requests"].sum().idxmax()
-peak_total = demand_data.groupby("month_start")["requests"].sum().max()
-st.caption(f"Peak month in the current selection: {peak_month:%B %Y} ({peak_total:,.0f} requests).")
+st.plotly_chart(month_chart, width="stretch")
 
 st.divider()
-st.subheader("District service map")
-st.write("A compact view of request volume across the selected districts.")
-district_positions = {
-    "North End": (1, 2),
-    "Downtown": (1, 1),
-    "East Side": (2, 1),
-    "West End": (0, 1),
-    "University": (2, 2),
-    "South Park": (1, 0),
-}
-district_map_data = (
-    filtered.loc[filtered["district"].isin(district_positions)]
-    .groupby("district", as_index=False, observed=True)
-    .agg(requests=("request_id", "nunique"))
+st.subheader("Most common primary offense types")
+top_offenses = (
+    filtered.groupby("offense_name", as_index=False)["incidents"]
+    .sum()
+    .nlargest(12, "incidents")
+    .sort_values("incidents")
 )
-district_map_data["x"] = district_map_data["district"].map(
-    lambda district: district_positions[district][0]
+offense_chart = px.bar(
+    top_offenses,
+    x="incidents",
+    y="offense_name",
+    orientation="h",
+    labels={"incidents": "Incidents", "offense_name": "Primary offense type"},
+    color="incidents",
+    color_continuous_scale=HEAT_COLORS,
 )
-district_map_data["y"] = district_map_data["district"].map(
-    lambda district: district_positions[district][1]
-)
-map_column, map_note_column = st.columns([2, 1])
-with map_column:
-    if district_map_data.empty:
-        st.info("No named districts match the current filters.")
-    else:
-        district_chart = px.scatter(
-            district_map_data,
-            x="x",
-            y="y",
-            size="requests",
-            color="requests",
-            text="district",
-            size_max=58,
-            color_continuous_scale=["#B8D7CF", "#126B5B"],
-            hover_data={"x": False, "y": False, "district": True, "requests": ":,d"},
-            labels={"requests": "Unique requests"},
-        )
-        district_chart.update_traces(
-            textposition="middle center",
-            textfont=dict(color="#10231F", size=11),
-            marker=dict(line=dict(color="#FFFFFF", width=2)),
-        )
-        district_chart.update_layout(
-            template="plotly_white",
-            showlegend=False,
-            coloraxis_showscale=False,
-            margin=dict(l=10, r=10, t=10, b=10),
-            height=330,
-            xaxis=dict(visible=False, range=[-0.65, 2.65], fixedrange=True),
-            yaxis=dict(visible=False, range=[-0.55, 2.55], fixedrange=True),
-        )
-        st.plotly_chart(district_chart, width="stretch")
-with map_note_column:
-    st.markdown("**Marker size**\n\nUnique requests")
-    st.markdown(
-        "**Schematic only**\n\n"
-        "The dataset contains district names, not geographic coordinates. "
-        "Marker positions are illustrative and do not represent actual locations. "
-        "Unknown districts are omitted."
-    )
-
-st.subheader("Resolution time and resident experience")
-st.write(
-    "Do requests that take longer to resolve tend to receive lower satisfaction scores, "
-    "and does the pattern differ by channel?"
-)
-experience_data = filtered.dropna(subset=["resolution_days", "satisfaction_score"])
-experience_chart = px.scatter(
-    experience_data,
-    x="resolution_days",
-    y="satisfaction_score",
-    color="channel",
-    hover_data=["category", "district", "priority"],
-    opacity=0.62,
-    color_discrete_sequence=CHART_COLORS,
-    labels={
-        "resolution_days": "Resolution time (days)",
-        "satisfaction_score": "Satisfaction score (1-5)",
-        "channel": "Request channel",
-    },
-)
-experience_chart.update_layout(
+offense_chart.update_layout(
     template="plotly_white",
-    legend_title_text="Channel",
+    showlegend=False,
+    coloraxis_showscale=False,
     margin=dict(l=10, r=10, t=15, b=10),
-    height=430,
+    height=470,
 )
-experience_chart.update_yaxes(range=[0.5, 5.5], dtick=1)
-st.plotly_chart(experience_chart, width="stretch")
-if len(experience_data) > 1:
-    correlation = experience_data["resolution_days"].corr(
-        experience_data["satisfaction_score"]
-    )
-    st.caption(
-        f"Filtered records show a correlation of {correlation:.2f} between resolution "
-        "time and satisfaction. This is descriptive and does not establish causation."
-    )
-else:
-    st.caption("At least two requests with both measures are needed to compare the relationship.")
+st.plotly_chart(offense_chart, width="stretch")
 
 st.divider()
 st.caption(
-    "Source: instructor-provided synthetic City 311 teaching dataset. "
-    "Counts and averages describe this dataset only; they are not real-world city statistics."
+    "Source: FBI Crime Data Explorer, Florida NIBRS 2025 extract. The dashboard assigns "
+    "each incident its first listed offense and location to avoid counting the same incident "
+    "multiple times. County is based on the reporting agency, not an incident address. "
+    "Records without an unambiguous Florida county are excluded. Counts are not adjusted "
+    "for population and do not measure all crime."
 )
