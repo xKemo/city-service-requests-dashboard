@@ -164,17 +164,26 @@ heat_map = px.choropleth(
 )
 heat_map.update_traces(marker_line_color="#FFFFFF", marker_line_width=0.8)
 heat_map.update_coloraxes(
-    colorbar=dict(title="Reported incidents", tickvals=tick_values, ticktext=tick_labels)
+    colorbar=dict(
+        title=dict(text="Reported incidents", font=dict(color="#F3F4F6")),
+        tickvals=tick_values,
+        ticktext=tick_labels,
+        tickfont=dict(color="#F3F4F6"),
+        outlinecolor="#64748B",
+    )
 )
 heat_map.update_geos(
     fitbounds="locations",
     visible=False,
     showland=True,
-    landcolor="#E9ECE8",
-    bgcolor="#FFFFFF",
+    landcolor="#263238",
+    bgcolor="#111827",
 )
 heat_map.update_layout(
-    template="plotly_white",
+    template="plotly_dark",
+    paper_bgcolor="#111827",
+    plot_bgcolor="#111827",
+    font_color="#F3F4F6",
     margin=dict(l=0, r=0, t=10, b=0),
     height=610,
 )
